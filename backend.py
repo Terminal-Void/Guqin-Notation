@@ -71,7 +71,7 @@ HUI_COMFORT = {
 # F大调 pitch_class(0~11) → 简谱数字
 # F=1, G=2, A=3, Bb=4, C=5, D=6, E=7
 PC_TO_JIANPU = {5: 1, 7: 2, 9: 3, 10: 4, 0: 5, 2: 6, 4: 7}
-PC_CHROMATIC = {1: "#5", 3: "#6", 6: "#1", 8: "#2", 11: "b5"}
+PC_CHROMATIC = {1: "#5", 3: "#6", 6: "#1", 8: "#2", 11: "#4"}
 
 # 简谱基准: F3 = MIDI 53 = 中音 do
 JIANPU_BASE = 53
@@ -195,10 +195,15 @@ def parse_musicxml(xml_content):
 
     # 取第一个声部 (多声部/多Staff情况下只取Part 1)
     part = score.parts[0]
-    events, prev_m = [], None
-    note_count, rest_count, chord_count = 0, 0, 0
 
-    for elem in part.flat.notesAndRests:
+    # 合并连音 (tied notes) — 避免同一个音符重复出现
+    part = part.stripTies()
+    log.debug("stripTies 完成, 连音已合并")
+
+    events, prev_m = [], None
+    note_count, rest_count, chord_count, grace_count = 0, 0, 0, 0
+
+    for elem in part.flatten().notesAndRests:
         # 小节线
         mn = elem.measureNumber
         if mn != prev_m:
@@ -233,6 +238,11 @@ def parse_musicxml(xml_content):
 
         # 普通音符
         if isinstance(elem, m21note.Note):
+            # 过滤装饰音 (grace notes) — 时值为0, 古琴谱中另行处理
+            if elem.duration.isGrace:
+                grace_count += 1
+                log.debug("小节%s 跳过装饰音 %s", mn, elem.pitch.nameWithOctave)
+                continue
             note_count += 1
             log.debug("小节%s 音符 %s (MIDI %d, 时值 %.2f)",
                       mn, elem.pitch.nameWithOctave,
@@ -245,6 +255,8 @@ def parse_musicxml(xml_content):
                 "lyric": str(elem.lyric) if elem.lyric else "",
             })
 
+    if grace_count:
+        log.info("已跳过 %d 个装饰音 (grace notes)", grace_count)
     log.info("解析结果: %d 个音符, %d 个休止符, %d 个和弦, %d 个小节",
              note_count, rest_count, chord_count, prev_m or 0)
     return events, meta
@@ -350,7 +362,7 @@ def index():
 @app.route('/api/test/xianweng')
 def test_xianweng():
     """提供仙翁操 JSON 测试数据"""
-    return send_file('xianweng.json')
+    return send_file(os.path.join(app.root_path, 'xianweng.json'))
 
 
 @app.route('/api/convert', methods=['POST'])

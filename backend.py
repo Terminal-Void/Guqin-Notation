@@ -68,6 +68,13 @@ HUI_COMFORT = {
     "十二": 5, "七": 6, "十三": 7, "六": 8, "五": 9, "四": 10,
 }
 
+# 字体输出用徽位名 — 十一/十二/十三 需加 "徽" 后缀消歧
+HUI_FONT_NAME = {
+    "散": "散", "十三": "十三徽", "十二": "十二徽", "十一": "十一徽",
+    "十": "十", "九": "九", "八": "八", "七": "七",
+    "六": "六", "五": "五", "四": "四",
+}
+
 # F大调 pitch_class(0~11) → 简谱数字
 # F=1, G=2, A=3, Bb=4, C=5, D=6, E=7
 PC_TO_JIANPU = {5: 1, 7: 2, 9: 3, 10: 4, 0: 5, 2: 6, 4: 7}
@@ -263,6 +270,37 @@ def parse_musicxml(xml_content):
 
 
 # ====================================================================
+#  减字谱字体文本生成 (WangJiJianZiPuKaiTi)
+# ====================================================================
+
+def _rh_for_string(s):
+    """根据弦号推测默认右手指法: 1-4弦→挑, 5-7弦→勾"""
+    return "勾" if s >= 5 else "挑"
+
+
+def _jzp_text(pos):
+    """
+    生成忘机减字谱楷体字体所需的纯文本输入.
+    字体通过 OpenType 特性自动将文本组合为减字谱方块字.
+    """
+    s = pos["string"]
+    rh = _rh_for_string(s)
+    string_cn = NUM_TO_CN[s]
+
+    if pos["is_open"]:
+        # 散音: 散{右手}{弦号}
+        text = f"散{rh}{string_cn}"
+    else:
+        # 按音: {左手}{徽位}{右手}{弦号}
+        lh = "名"   # 默认名指 (MusicXML 无左手指法信息)
+        hui = HUI_FONT_NAME[pos["hui"]]
+        text = f"{lh}{hui}{rh}{string_cn}"
+
+    log.debug("字体文本: %s (弦%s %s)", text, string_cn, pos["hui"])
+    return text
+
+
+# ====================================================================
 #  事件 → 减字谱渲染数据
 # ====================================================================
 
@@ -307,43 +345,32 @@ def events_to_render(events):
             queue.append({
                 "type": "guqin_char",
                 "layout_mode": "unknown",
+                "jzp_text": "",
                 "display_info": {**display, "warning": "超出音域"},
                 "duration": dur,
-                "components": {},
             })
             continue
 
         s = pos["string"]
-        rh = "勹" if s >= 6 else "乚"   # 6-7弦用勾, 1-5弦用挑
+        jzp = _jzp_text(pos)
 
         if pos["is_open"]:
-            # === 散音 ===
             stats["open"] += 1
             queue.append({
                 "type": "guqin_char",
                 "layout_mode": "open_string",
+                "jzp_text": jzp,
                 "display_info": display,
                 "duration": dur,
-                "components": {
-                    "top": "艹",                    # 草字头 = 散音标记
-                    "bottom_wrapper": rh,           # 右手技法
-                    "bottom_inner": NUM_TO_CN[s],   # 弦号
-                },
             })
         else:
-            # === 按音 ===
             stats["pressed"] += 1
             queue.append({
                 "type": "guqin_char",
                 "layout_mode": "pressed",
+                "jzp_text": jzp,
                 "display_info": display,
                 "duration": dur,
-                "components": {
-                    "hui": pos["hui"],              # 徽位
-                    "string": NUM_TO_CN[s],         # 弦号
-                    "right_hand": rh,               # 右手技法
-                    "left_hand": "名",              # 左手指法 (默认名指)
-                },
             })
 
     log.info("减字谱转换完成: %s", stats)
@@ -357,6 +384,12 @@ def events_to_render(events):
 @app.route('/')
 def index():
     return render_template('index.html')
+
+
+@app.route('/fonts/<path:filename>')
+def serve_font(filename):
+    """提供字体文件 (WangJiJianZiPuKaiTi)"""
+    return send_file(os.path.join(app.root_path, 'static', 'fonts', filename))
 
 
 @app.route('/api/test/xianweng')

@@ -11,4 +11,11 @@
   /* Enable all OpenType features the font uses for dynamic composition */
   font-feature-settings: "liga" 1, "calt" 1, "ccmp" 1, "rlig" 1;
   -webkit-font-feature-settings: "liga" 1, "calt" 1, "ccmp" 1, "rlig" 1;
+  /* CRITICAL: prevent line-break before OpenType ligature composition fires.
+     Without this, CJK text wraps between characters and ligatures break. */
+  white-space: nowrap;
+  letter-spacing: 0;
+  word-spacing: 0;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }

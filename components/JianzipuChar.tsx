@@ -120,7 +120,7 @@ export const JianzipuChar: React.FC<Props> = ({ note, chordNotes }) => {
           )}
         </div>
         {/* Jianzipu: single 撮 character or fallback stacked */}
-        <div className="w-[4.5rem] h-[4rem] flex flex-col items-center justify-start gap-0">
+        <div className="min-w-[4.5rem] min-h-[4rem] flex flex-col items-center justify-start gap-0 overflow-visible">
           {chordFontText ? (
             <span className="jianzipu-font text-[3.5rem] leading-none text-stone-900">
               {chordFontText}
@@ -148,7 +148,7 @@ export const JianzipuChar: React.FC<Props> = ({ note, chordNotes }) => {
       <JianpuSection note={note} />
 
       {/* Jianzipu section — single span rendered by the font */}
-      <div className="w-[3.5rem] h-[4rem] flex items-start justify-center">
+      <div className="min-w-[3.5rem] min-h-[4rem] flex items-start justify-center overflow-visible">
         {fontText ? (
           <span className="jianzipu-font text-[3.5rem] leading-none text-stone-900">
             {fontText}

@@ -9,3 +9,4 @@ wheels/
 # Virtual environments
 .venv
 static/fonts/wjjzp_pinyin.dict.yaml
+.DS_Store

@@ -1,180 +1,315 @@
 import React from 'react';
-import { GuqinNote, HandTechnique, LeftHand, RightHand } from '../types';
+import { GuqinNote } from '../types';
+import { buildChordJianzipuText, buildJianzipuText } from '../utils/jianzipuFont';
 
 interface Props {
   note: GuqinNote;
+  chordNotes?: GuqinNote[];
+  noteIdx?: number;
+  widthRem?: number;
 }
 
-const STRING_MAP = ['','一','二','三','四','五','六','七'];
-const RH_DISPLAY_MAP: Record<string, string> = {
-    [RightHand.Tiao]: '乚', [RightHand.Gou]: '勹', [RightHand.Mo]: '木',   
-    [RightHand.Ti]: '尸', [RightHand.Da]: '丁', [RightHand.Zhai]: '⺮', [RightHand.None]: ''
+const SINGLE_ENTRY_WIDTH_REM = 4.02;
+const REST_ENTRY_WIDTH_REM = 3.9;
+const DOUBLE_CHORD_WIDTH_REM = 5.1;
+const TRIPLE_CHORD_WIDTH_REM = 5.45;
+const QUAD_CHORD_WIDTH_REM = 5.88;
+
+const NUMBER_ROW_HEIGHT_REM = 2.35;
+const GLYPH_ROW_HEIGHT_REM = 3.8;
+const STACKED_CHORD_ROW_HEIGHT_REM = 4.1;
+
+const accidentalMap: Record<string, string> = { '#': '♯', b: '♭' };
+
+export const getEntryWidthRem = (note: GuqinNote, chordNotes?: GuqinNote[], overrideRem?: number) => {
+  if (overrideRem != null) return overrideRem;
+  if (note.originalNote.isBarline) return 0.95;
+  if (note.originalNote.isDash) return 2.1;
+
+  if (chordNotes && chordNotes.length > 1) {
+    if (chordNotes.length >= 4) return QUAD_CHORD_WIDTH_REM;
+    if (chordNotes.length === 3) return TRIPLE_CHORD_WIDTH_REM;
+    return DOUBLE_CHORD_WIDTH_REM;
+  }
+
+  if (note.originalNote.isRest) return REST_ENTRY_WIDTH_REM;
+
+  const { jianpu } = note.originalNote;
+  let width = SINGLE_ENTRY_WIDTH_REM;
+  if (jianpu.accidental) width += 0.18;
+  if (Math.abs(jianpu.octave) > 0) width += 0.08;
+  if ((jianpu.dotCount ?? 0) > 0) width += Math.min(0.18, (jianpu.dotCount ?? 0) * 0.06);
+  return width;
 };
-const LH_DISPLAY_MAP: Record<string, string> = {
-    [LeftHand.Da]: '大', [LeftHand.Shi]: '亻', [LeftHand.Zhong]: '中', [LeftHand.Ming]: '夕', [LeftHand.None]: ''
+
+export const getEntryWidth = (note: GuqinNote, chordNotes?: GuqinNote[], overrideRem?: number) =>
+  `${getEntryWidthRem(note, chordNotes, overrideRem)}rem`;
+
+const OctaveDots: React.FC<{ count: number; position: 'top' | 'bottom'; compact?: boolean }> = ({
+  count,
+  position,
+  compact = false,
+}) => {
+  if (!count) return null;
+
+  const sizeClass = compact ? 'h-[2px] w-[2px]' : 'h-[3px] w-[3px]';
+  const gapClass = compact ? 'gap-[1px]' : 'gap-[2px]';
+  const marginClass = position === 'top' ? (compact ? 'mb-[1px]' : 'mb-[2px]') : 'mt-[1px]';
+
+  return (
+    <div className={`flex justify-center leading-[0] ${gapClass} ${marginClass}`}>
+      {Array.from({ length: Math.abs(count) }).map((_, i) => (
+        <div key={i} className={`${sizeClass} rounded-full bg-stone-900`} />
+      ))}
+    </div>
+  );
 };
 
-const getParts = (note: GuqinNote) => {
-  let topLeft = '';
-  let topRight = STRING_MAP[note.string] || '';
-  let bottomContainer = RH_DISPLAY_MAP[note.rightHand] || '';
-  let bottomContent = '';
-  
-  if (note.technique === HandTechnique.San) topLeft = '艹'; 
-  else if (note.technique === HandTechnique.Fan) topLeft = '泛'; 
-  else topLeft = LH_DISPLAY_MAP[note.leftHand] || '';
+const DurationDots: React.FC<{ count: number; compact?: boolean }> = ({ count, compact = false }) => {
+  if (count <= 0) return null;
 
-  if (note.technique !== HandTechnique.San) bottomContent = note.hui;
+  const sizeClass = compact ? 'h-[2px] w-[2px]' : 'h-[3px] w-[3px]';
+  const spacingClass = compact ? 'gap-[2px]' : 'gap-[3px]';
+  const rightClass = compact ? '-right-[6px] top-[4px]' : '-right-[8px] top-[5px]';
 
-  return { topLeft, topRight, bottomContainer, bottomContent };
-}
+  return (
+    <span className={`absolute ${rightClass} inline-flex ${spacingClass}`}>
+      {Array.from({ length: count }).map((_, index) => (
+        <span key={index} className={`${sizeClass} rounded-full bg-stone-900`} />
+      ))}
+    </span>
+  );
+};
 
-const OctaveDots: React.FC<{ count: number; position: 'top' | 'bottom' }> = ({ count, position }) => {
-    if (!count) return null;
+const getChordGridColumns = (size: number) => (size >= 3 ? 2 : size);
+
+const getChordGridItemStyle = (size: number, index: number): React.CSSProperties | undefined => {
+  if (size === 3 && index === 2) {
+    return { gridColumn: '1 / span 2' };
+  }
+  return undefined;
+};
+
+const CompactJianpuToken: React.FC<{ note: GuqinNote }> = ({ note }) => {
+  const { jianpu } = note.originalNote;
+  const displayAccidental = accidentalMap[jianpu.accidental] || jianpu.accidental;
+
+  return (
+    <div className="relative flex min-w-0 flex-col items-center justify-start leading-none">
+      <OctaveDots count={jianpu.octave > 0 ? jianpu.octave : 0} position="top" compact />
+      <div className="relative flex min-w-[0.9rem] items-center justify-center leading-none">
+        {displayAccidental && (
+          <span className="absolute -left-[0.45rem] top-[1px] text-[8px] font-bold text-stone-700">
+            {displayAccidental}
+          </span>
+        )}
+        <span className="font-serif text-[0.95rem] font-extrabold leading-none text-stone-900">{jianpu.number}</span>
+        <DurationDots count={jianpu.dotCount ?? (jianpu.dot ? 1 : 0)} compact />
+      </div>
+      <OctaveDots count={jianpu.octave < 0 ? jianpu.octave : 0} position="bottom" compact />
+    </div>
+  );
+};
+
+export const JianpuNumberDisplay: React.FC<{
+  note: GuqinNote;
+  chordNotes?: GuqinNote[];
+  noteIdx?: number;
+}> = ({ note, chordNotes, noteIdx }) => {
+  const { jianpu } = note.originalNote;
+
+  if (note.originalNote.isRest) {
     return (
-        <div className={`flex justify-center gap-[2px] leading-[0] ${position === 'top' ? 'mb-[1px]' : 'mt-[0px]'}`}>
-            {Array.from({ length: Math.abs(count) }).map((_, i) => (
-                <div key={i} className="w-[4px] h-[4px] bg-stone-900 rounded-full" />
-            ))}
+      <div className="flex w-full flex-col items-center justify-end">
+        <div data-note-number-content-idx={noteIdx} className="relative inline-flex items-center justify-center">
+          <span className="font-serif text-[1.1rem] font-bold leading-none text-stone-900">0</span>
+          <DurationDots count={jianpu.dotCount ?? (jianpu.dot ? 1 : 0)} />
         </div>
+      </div>
     );
+  }
+
+  if (chordNotes && chordNotes.length > 1) {
+    const sorted = [...chordNotes].sort((a, b) => a.string - b.string);
+    const columns = getChordGridColumns(sorted.length);
+
+    return (
+      <div className="flex w-full justify-center">
+        <div
+          data-note-number-content-idx={noteIdx}
+          className="inline-grid items-start justify-items-center gap-x-[0.22rem] gap-y-[0.16rem]"
+          style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+        >
+          {sorted.map((cn, i) => (
+            <div key={i} style={getChordGridItemStyle(sorted.length, i)}>
+              <CompactJianpuToken note={cn} />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const displayAccidental = accidentalMap[jianpu.accidental] || jianpu.accidental;
+
+  return (
+    <div className="flex flex-col items-center">
+      <OctaveDots count={jianpu.octave > 0 ? jianpu.octave : 0} position="top" />
+      <div
+        data-note-number-content-idx={noteIdx}
+        className="relative inline-flex items-center justify-center leading-none"
+      >
+        {displayAccidental && (
+          <span className="absolute -left-3 top-[2px] text-[9px] font-bold text-stone-700">
+            {displayAccidental}
+          </span>
+        )}
+        <span className="font-serif text-[1.18rem] font-extrabold leading-none text-stone-900">
+          {jianpu.number}
+        </span>
+        <DurationDots count={jianpu.dotCount ?? (jianpu.dot ? 1 : 0)} />
+      </div>
+      <OctaveDots count={jianpu.octave < 0 ? jianpu.octave : 0} position="bottom" />
+    </div>
+  );
 };
 
-export const JianzipuChar: React.FC<Props> = ({ note }) => {
-  // 1. Structural Elements
+export const JianzipuFontDisplay: React.FC<{
+  note: GuqinNote;
+  chordNotes?: GuqinNote[];
+  noteIdx?: number;
+}> = ({ note, chordNotes, noteIdx }) => {
+  if (note.originalNote.isRest) {
+    return <div style={{ minHeight: `${GLYPH_ROW_HEIGHT_REM}rem` }} />;
+  }
+
+  if (chordNotes && chordNotes.length > 1) {
+    const sorted = [...chordNotes].sort((a, b) => a.string - b.string);
+    const chordFontText = sorted.length === 2 ? buildChordJianzipuText(sorted) : null;
+    const fallbackTexts = chordFontText ? [] : sorted.map((cn) => buildJianzipuText(cn)).filter(Boolean);
+    const columns = getChordGridColumns(sorted.length);
+    const minHeightRem = sorted.length >= 3 ? STACKED_CHORD_ROW_HEIGHT_REM : GLYPH_ROW_HEIGHT_REM;
+    const fallbackFontSize =
+      sorted.length >= 4 ? '1.42rem' : sorted.length === 3 ? '1.34rem' : '1.56rem';
+
+    return (
+      <div
+        className="flex w-full flex-col items-center justify-start overflow-visible"
+        style={{ minHeight: `${minHeightRem}rem` }}
+      >
+        {chordFontText ? (
+          <span
+            data-note-glyph-content-idx={noteIdx}
+            className="jianzipu-font block text-center text-[2.18rem] leading-[0.95] text-stone-900"
+          >
+            {chordFontText}
+          </span>
+        ) : fallbackTexts.length > 0 ? (
+          <div
+            data-note-glyph-content-idx={noteIdx}
+            className="inline-grid content-start items-start justify-items-center gap-x-[0.18rem] gap-y-[0.08rem]"
+            style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+          >
+            {fallbackTexts.map((text, i) => (
+              <span
+                key={i}
+                className="jianzipu-font block text-center text-stone-900"
+                style={{
+                  fontSize: fallbackFontSize,
+                  lineHeight: 0.94,
+                  ...getChordGridItemStyle(sorted.length, i),
+                }}
+              >
+                {text}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span className="text-[10px] text-stone-400">?</span>
+        )}
+      </div>
+    );
+  }
+
+  const fontText = buildJianzipuText(note);
+
+  return (
+    <div className="flex w-full items-start justify-center overflow-visible" style={{ minHeight: `${GLYPH_ROW_HEIGHT_REM}rem` }}>
+      {fontText ? (
+        <span
+          data-note-glyph-content-idx={noteIdx}
+          className="jianzipu-font block text-center text-[2.3rem] leading-[0.95] text-stone-900"
+        >
+          {fontText}
+        </span>
+      ) : (
+        <span className="text-[10px] text-stone-400">?</span>
+      )}
+    </div>
+  );
+};
+
+const IndividualUnderlines: React.FC<{ count: number }> = ({ count }) => {
+  if (count <= 0) return null;
+
+  return (
+    <div className="mt-[4px] flex w-[1.18rem] flex-col items-center gap-[3px]">
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="h-[1.5px] w-full bg-stone-900" />
+      ))}
+    </div>
+  );
+};
+
+export const JianzipuChar: React.FC<Props> = ({ note, chordNotes, noteIdx, widthRem }) => {
+  const idxAttr = noteIdx != null ? { 'data-note-idx': noteIdx } : {};
+  const entryWidthRem = getEntryWidthRem(note, chordNotes, widthRem);
+
   if (note.originalNote.isBarline) {
-      return (
-          <div className="w-[1px] h-[7rem] bg-stone-800 mx-2 self-start mt-1" />
-      );
+    return <div {...idxAttr} className="mx-[4px] mt-1 h-[6.15rem] w-[1px] self-start bg-stone-800" />;
   }
 
   if (note.originalNote.isDash) {
-      return (
-         <div className="inline-flex flex-col items-center justify-start w-[2.5rem] mx-1 relative top-[-4px]">
-             {/* Match height of number container */}
-             <div className="flex flex-col items-center justify-center h-[2.5rem] w-full">
-                 <span className="text-xl font-bold text-stone-900 scale-x-150">—</span>
-             </div>
-             {/* Empty space below for alignment */}
-             <div className="h-[4rem]" />
-         </div>
-      );
+    return (
+      <div className="relative top-[-1px] mx-[2px] inline-flex w-[1.9rem] flex-col items-center justify-start">
+        <div {...idxAttr} className="flex h-[1.7rem] w-full flex-col items-center justify-center">
+          <span className="scale-x-150 text-[1rem] font-bold text-stone-900">—</span>
+        </div>
+        <div style={{ minHeight: `${GLYPH_ROW_HEIGHT_REM}rem` }} />
+      </div>
+    );
   }
 
-  // 2. Rests
   if (note.originalNote.isRest) {
     const { jianpu } = note.originalNote;
     return (
-        <div className="inline-flex flex-col items-center justify-start w-[3.5rem] relative">
-             <div className="flex flex-col items-center justify-end h-[2.5rem] w-full pb-1">
-                 <div className="relative">
-                    <span className="text-[1.4rem] font-bold font-serif leading-none text-stone-900">0</span>
-                    {jianpu.dot && <div className="absolute top-1 -right-2 w-[3.5px] h-[3.5px] bg-stone-900 rounded-full" />}
-                 </div>
-                 {/* Underlines for rest */}
-                 {jianpu.underlineCount > 0 && (
-                    <div className="flex flex-col gap-[3px] mt-[3px] w-[14px] items-center">
-                        <div className="w-full h-[2px] bg-stone-900" />
-                        {jianpu.underlineCount > 1 && <div className="w-full h-[2px] bg-stone-900" />}
-                    </div>
-                )}
-             </div>
-             <div className="h-[4rem]" />
+      <div className="relative inline-flex flex-col items-center justify-start" style={{ width: `${entryWidthRem}rem` }}>
+        <div
+          {...idxAttr}
+          className="flex w-full flex-col items-center justify-end pb-[1px]"
+          style={{ minHeight: `${NUMBER_ROW_HEIGHT_REM}rem` }}
+        >
+          <JianpuNumberDisplay note={note} noteIdx={noteIdx} />
+          <IndividualUnderlines count={jianpu.underlineCount} />
         </div>
-    ); 
+        <JianzipuFontDisplay note={note} noteIdx={noteIdx} />
+      </div>
+    );
   }
 
-  // 3. Regular Notes
-  const { topLeft, topRight, bottomContainer, bottomContent } = getParts(note);
   const { jianpu } = note.originalNote;
-  
-  const accidentalMap: Record<string, string> = { '#': '♯', 'b': '♭' };
-  const displayAccidental = accidentalMap[jianpu.accidental] || jianpu.accidental;
-  
-  const isFractional = bottomContent.includes('.');
-  const [mainHui, subHui] = isFractional ? bottomContent.split('.') : [bottomContent, ''];
-  const containerScaleClass = bottomContent ? "scale-x-[1.6] scale-y-[0.9] origin-top" : "scale-100 origin-center";
-  
-  let contentOffsetClass = "mt-[2px]";
-  if (note.rightHand === RightHand.Gou) contentOffsetClass = "mt-[5px]";
-  if (note.rightHand === RightHand.Tiao) contentOffsetClass = "mt-[1px]";
-  if (note.rightHand === RightHand.Ti) contentOffsetClass = "mt-[8px]";
 
   return (
-    <div className="inline-flex flex-col items-center justify-start align-top relative px-2">
-      
-      {/* --- JIANPU Section --- */}
-      {/* Container is fixed height to align dashes/rests, but flex allows content to stack */}
-      <div className="flex flex-col items-center justify-end h-[2.5rem] w-full relative mb-1">
-         
-         {/* Top Dots (High Octave) */}
-         <OctaveDots count={jianpu.octave > 0 ? jianpu.octave : 0} position="top" />
-
-         {/* Number + Accidental + Rhythm Dot */}
-         <div className="relative flex items-center justify-center leading-none">
-             {displayAccidental && (
-                 <span className="absolute -left-3 top-[2px] text-[10px] font-bold text-stone-700">
-                     {displayAccidental}
-                 </span>
-             )}
-             
-             <span className="text-[1.5rem] font-extrabold font-serif text-stone-900">
-                 {jianpu.number}
-             </span>
-             
-             {/* Rhythm Dot - positioned relative to number, slightly raised */}
-             {jianpu.dot && (
-                <span className="absolute -right-3 top-[6px] w-[4px] h-[4px] bg-stone-900 rounded-full"></span>
-             )}
-         </div>
-
-         {/* Bottom Dots (Low Octave) */}
-         <OctaveDots count={jianpu.octave < 0 ? jianpu.octave : 0} position="bottom" />
-
-         {/* Rhythm Underlines */}
-         {jianpu.underlineCount > 0 && (
-             <div className="flex flex-col gap-[3px] mt-[4px] w-[1.2rem] items-center">
-                 <div className="w-full h-[2px] bg-stone-900" />
-                 {jianpu.underlineCount > 1 && <div className="w-full h-[2px] bg-stone-900" />}
-             </div>
-         )}
+    <div className="relative inline-flex flex-col items-center justify-start align-top" style={{ width: `${entryWidthRem}rem` }}>
+      <div
+        {...idxAttr}
+        className="relative mb-[5px] flex w-full flex-col items-center justify-end px-[0.08rem]"
+        style={{ minHeight: `${NUMBER_ROW_HEIGHT_REM}rem` }}
+      >
+        <JianpuNumberDisplay note={note} chordNotes={chordNotes} noteIdx={noteIdx} />
+        <IndividualUnderlines count={jianpu.underlineCount} />
       </div>
-
-      {/* --- JIANZIPU Section --- */}
-      {/* Tighten vertical spacing */}
-      <div className="w-[3.5rem] h-[4rem] flex flex-col items-center relative text-stone-900 select-none">
-        
-        {/* Upper Part */}
-        <div className="flex w-full h-[1.8rem] items-end justify-center gap-[0px] leading-none">
-            <span className="text-[1.2rem] font-bold font-serif transform scale-y-110 tracking-tighter">
-                {topLeft}
-            </span>
-            <span className="text-[1.2rem] font-bold font-serif transform scale-y-110 tracking-tighter">
-                {topRight}
-            </span>
-        </div>
-
-        {/* Lower Part */}
-        <div className="relative w-full flex-1 flex justify-center items-start -mt-[2px]">
-            <span className={`absolute top-0 left-1/2 -translate-x-1/2 text-[2.4rem] font-serif font-light leading-none text-stone-800 ${containerScaleClass}`}>
-              {bottomContainer}
-            </span>
-            
-            {bottomContent && (
-                <div className={`relative z-10 flex flex-col items-center leading-none ${contentOffsetClass}`}>
-                    <span className={`${subHui ? 'text-[11px]' : 'text-[13px]'} font-bold font-serif tracking-tighter`}>
-                        {mainHui}
-                    </span>
-                    {subHui && (
-                        <span className="text-[9px] font-serif font-bold -mt-[2px] transform scale-90 origin-top">
-                        {subHui}
-                        </span>
-                    )}
-                </div>
-            )}
-        </div>
-      </div>
-
+      <JianzipuFontDisplay note={note} chordNotes={chordNotes} noteIdx={noteIdx} />
     </div>
   );
 };
